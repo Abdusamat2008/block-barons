@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Barons</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"/three/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="labels"></div>
+
+<!-- Экран входа -->
+<section id="scr-login" class="screen active">
+  <div class="card center">
+    <h1>BLOCK<span>BARONS</span></h1>
+    <p class="muted">Стань главным бароном крипторынка</p>
+    <input id="nameInput" maxlength="16" placeholder="Твой ник" autocomplete="off">
+    <button id="btnEnter" class="btn primary">Войти</button>
+  </div>
+</section>
+
+<!-- Главное меню -->
+<section id="scr-menu" class="screen">
+  <div class="card menu">
+    <h1>BLOCK<span>BARONS</span></h1>
+    <div class="muted" id="whoami"></div>
+    <button id="btnPractice" class="btn primary">Тренировка с ботами</button>
+    <button id="btnLive" class="btn">Живые игроки <span id="lockIcon">🔒</span></button>
+    <div id="lockNote" class="note"></div>
+    <button id="btnHow" class="btn ghost">Как играть</button>
+  </div>
+</section>
+
+<!-- Список лобби -->
+<section id="scr-lobbies" class="screen">
+  <div class="card wide">
+    <div class="row between"><h2>Живые лобби</h2><button id="btnBackMenu" class="btn ghost small">← Меню</button></div>
+    <div id="lobbyList" class="list"></div>
+    <div class="row">
+      <input id="codeInput" maxlength="4" placeholder="Код" class="code">
+      <button id="btnJoinCode" class="btn">Войти по коду</button>
+      <button id="btnNewLobby" class="btn primary">Создать лобби</button>
+    </div>
+  </div>
+</section>
+
+<!-- Создание лобби -->
+<section id="scr-create" class="screen">
+  <div class="card">
+    <h2>Новое лобби</h2>
+    <label>Название<input id="cName" maxlength="24" placeholder="Моя комната"></label>
+    <label>Тип
+      <select id="cPrivate"><option value="0">Открытое</option><option value="1">Закрытое (по коду)</option></select>
+    </label>
+    <label>Игроков (2–6)<input id="cMax" type="number" min="2" max="6" value="4"></label>
+    <label>Раундов (5–15)<input id="cRounds" type="number" min="5" max="15" value="10"></label>
+    <label>Стартовый капитал<input id="cCash" type="number" min="500" max="5000" step="100" value="1000"></label>
+    <label class="check"><input id="cBots" type="checkbox" checked> Добавить ботов до полного состава</label>
+    <div class="row"><button id="btnCreateBack" class="btn ghost">Отмена</button><button id="btnCreate" class="btn primary">Создать</button></div>
+  </div>
+</section>
+
+<!-- Комната ожидания -->
+<section id="scr-room" class="screen">
+  <div class="card">
+    <h2 id="roomTitle"></h2>
+    <div class="muted" id="roomInfo"></div>
+    <div id="roomCode" class="roomcode"></div>
+    <div id="roomPlayers" class="list"></div>
+    <div class="row"><button id="btnLeaveRoom" class="btn ghost">Выйти</button><button id="btnStart" class="btn primary">Начать игру</button></div>
+  </div>
+</section>
+
+<!-- Игра -->
+<section id="scr-game" class="screen hud">
+  <div class="topbar">
+    <div><b id="gRound"></b> <span id="gPhase" class="muted"></span></div>
+    <div id="gTimer" class="timer"></div>
+    <button id="btnQuit" class="btn ghost small">Выйти</button>
+  </div>
+  <div class="side">
+    <h3>Рейтинг</h3>
+    <div id="gPlayers"></div>
+    <h3>Рынок</h3>
+    <div id="gLog" class="log"></div>
+  </div>
+  <div class="bottom">
+    <div id="gEvent" class="eventbox"></div>
+    <div id="gMarket" class="market"></div>
+    <div class="row between wrapline">
+      <div class="wallet"><span class="muted">Наличные</span> <b id="gCash"></b> · <span class="muted">Капитал</span> <b id="gWorth"></b></div>
+      <div id="gCards" class="cards"></div>
+      <button id="btnReady" class="btn primary">Готов</button>
+    </div>
+  </div>
+</section>
+
+<!-- Итоги -->
+<section id="scr-end" class="screen">
+  <div class="card">
+    <h2 id="endTitle"></h2>
+    <div id="endList" class="list"></div>
+    <div id="endNote" class="note"></div>
+    <button id="btnEndMenu" class="btn primary">В меню</button>
+  </div>
+</section>
+
+<!-- Обучение -->
+<div id="tutorial" class="modal hidden">
+  <div class="card">
+    <div class="muted" id="tStep"></div>
+    <h2 id="tTitle"></h2>
+    <p id="tText"></p>
+    <div class="row between">
+      <button id="tSkip" class="btn ghost small">Пропустить</button>
+      <div class="row"><button id="tBack" class="btn small">Назад</button><button id="tNext" class="btn primary small">Дальше</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+ШАГ 1. Залить на GitHub
+-----------------------
+1. Зайди на github.com -> New repository -> назови block-barons -> Create (ничего не отмечай).
+2. Открой терминал В ЭТОЙ ПАПКЕ и вставь по очереди (замени ТВОЙ_НИК):
+
+   git init
+   git add .
+   git commit -m "Block Barons"
+   git branch -M main
+   git remote add origin https://github.com/ТВОЙ_НИК/block-barons.git
+   git push -u origin main
+
+ШАГ 2. Запустить онлайн (Vercel для этого НЕ подходит - там нет WebSocket)
+--------------------------------------------------------------------------
+1. Зайди на render.com, войди через GitHub.
+2. New -> Blueprint -> выбери репозиторий block-barons -> Apply.
+   (все настройки уже в файле render.yaml, ничего вводить не надо)
+3. Через 2-3 минуты получишь ссылку https://block-barons.onrender.com - она и есть игра.
+
+ЛОКАЛЬНЫЙ ЗАПУСК
+----------------
+npm install
+npm start
+Открой http://localhost:3000
