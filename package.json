@@ -1,13 +1,12 @@
 {
   "name": "block-barons",
   "version": "1.0.0",
-  "description": "Онлайн-мультиплеерная 3D игра про крипторынок",
+  "description": "Онлайн-мультиплеерная настольная игра про крипторынок",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "three": "^0.187.0",
     "ws": "^8.22.2"
   }
 }

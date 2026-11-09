@@ -5,25 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Block Barons</title>
 <link rel="stylesheet" href="style.css">
-<script type="importmap">{"imports":{"three":"/three/three.module.js"}}</script>
 </head>
 <body>
-<canvas id="stage"></canvas>
-<div id="labels"></div>
 
-<!-- Экран входа -->
+<!-- Вход -->
 <section id="scr-login" class="screen active">
   <div class="card center">
     <h1>BLOCK<span>BARONS</span></h1>
-    <p class="muted">Стань главным бароном крипторынка</p>
+    <p class="muted">Настольная игра: скупай улицы, строй и разоряй соперников</p>
     <input id="nameInput" maxlength="16" placeholder="Твой ник" autocomplete="off">
     <button id="btnEnter" class="btn primary">Войти</button>
   </div>
 </section>
 
-<!-- Главное меню -->
+<!-- Меню -->
 <section id="scr-menu" class="screen">
-  <div class="card menu">
+  <div class="card center">
     <h1>BLOCK<span>BARONS</span></h1>
     <div class="muted" id="whoami"></div>
     <button id="btnPractice" class="btn primary">Тренировка с ботами</button>
@@ -55,14 +52,14 @@
       <select id="cPrivate"><option value="0">Открытое</option><option value="1">Закрытое (по коду)</option></select>
     </label>
     <label>Игроков (2–6)<input id="cMax" type="number" min="2" max="6" value="4"></label>
-    <label>Раундов (5–15)<input id="cRounds" type="number" min="5" max="15" value="10"></label>
-    <label>Стартовый капитал<input id="cCash" type="number" min="500" max="5000" step="100" value="1000"></label>
+    <label>Кругов до конца (5–60)<input id="cRounds" type="number" min="5" max="60" value="20"></label>
+    <label>Стартовый капитал<input id="cCash" type="number" min="500" max="5000" step="100" value="1500"></label>
     <label class="check"><input id="cBots" type="checkbox" checked> Добавить ботов до полного состава</label>
     <div class="row"><button id="btnCreateBack" class="btn ghost">Отмена</button><button id="btnCreate" class="btn primary">Создать</button></div>
   </div>
 </section>
 
-<!-- Комната ожидания -->
+<!-- Ожидание -->
 <section id="scr-room" class="screen">
   <div class="card">
     <h2 id="roomTitle"></h2>
@@ -74,25 +71,28 @@
 </section>
 
 <!-- Игра -->
-<section id="scr-game" class="screen hud">
-  <div class="topbar">
-    <div><b id="gRound"></b> <span id="gPhase" class="muted"></span></div>
-    <div id="gTimer" class="timer"></div>
-    <button id="btnQuit" class="btn ghost small">Выйти</button>
-  </div>
-  <div class="side">
-    <h3>Рейтинг</h3>
-    <div id="gPlayers"></div>
-    <h3>Рынок</h3>
-    <div id="gLog" class="log"></div>
-  </div>
-  <div class="bottom">
-    <div id="gEvent" class="eventbox"></div>
-    <div id="gMarket" class="market"></div>
-    <div class="row between wrapline">
-      <div class="wallet"><span class="muted">Наличные</span> <b id="gCash"></b> · <span class="muted">Капитал</span> <b id="gWorth"></b></div>
-      <div id="gCards" class="cards"></div>
-      <button id="btnReady" class="btn primary">Готов</button>
+<section id="scr-game" class="screen gamescr">
+  <div class="gamewrap">
+    <div class="boardbox">
+      <div id="board" class="board">
+        <div id="center" class="center-area">
+          <div class="logo">BLOCK<span>BARONS</span></div>
+          <div class="dicebox"><div id="die1" class="die">⚀</div><div id="die2" class="die">⚀</div></div>
+          <div id="turnInfo" class="turninfo"></div>
+          <div id="cardInfo" class="cardinfo"></div>
+          <div id="sqInfo" class="sqinfo">Нажми на клетку, чтобы увидеть детали</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row between">
+        <div><b id="gRound"></b> <span class="muted" id="gPot"></span></div>
+        <div class="row"><span id="gTimer" class="timer"></span><button id="btnQuit" class="btn ghost small">Выйти</button></div>
+      </div>
+      <div id="gPlayers" class="players"></div>
+      <div id="actions" class="actions"></div>
+      <div id="myStreets" class="streets"></div>
+      <div id="gLog" class="log"></div>
     </div>
   </div>
 </section>
@@ -121,6 +121,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script type="module" src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
