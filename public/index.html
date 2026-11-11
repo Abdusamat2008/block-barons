@@ -12,7 +12,7 @@
 <section id="scr-login" class="screen active">
   <div class="card center">
     <h1>BLOCK<span>BARONS</span></h1>
-    <p class="muted">Настольная игра: скупай улицы, строй и разоряй соперников</p>
+    <p class="muted">Настольная игра про крипто-ферму: майнь, торгуй на бирже, бери кредиты и переиграй соперников</p>
     <input id="nameInput" maxlength="16" placeholder="Твой ник" autocomplete="off">
     <button id="btnEnter" class="btn primary">Войти</button>
   </div>
@@ -52,8 +52,8 @@
       <select id="cPrivate"><option value="0">Открытое</option><option value="1">Закрытое (по коду)</option></select>
     </label>
     <label>Игроков (2–6)<input id="cMax" type="number" min="2" max="6" value="4"></label>
-    <label>Кругов до конца (5–60)<input id="cRounds" type="number" min="5" max="60" value="20"></label>
-    <label>Стартовый капитал<input id="cCash" type="number" min="500" max="5000" step="100" value="1500"></label>
+    <label>Раундов (5–40)<input id="cRounds" type="number" min="5" max="40" value="12"></label>
+    <label>Стартовые деньги<input id="cCash" type="number" min="500" max="5000" step="100" value="1000"></label>
     <label class="check"><input id="cBots" type="checkbox" checked> Добавить ботов до полного состава</label>
     <div class="row"><button id="btnCreateBack" class="btn ghost">Отмена</button><button id="btnCreate" class="btn primary">Создать</button></div>
   </div>
@@ -77,25 +77,40 @@
       <div id="board" class="board">
         <div id="center" class="center-area">
           <div class="logo">BLOCK<span>BARONS</span></div>
+          <div id="rates" class="rates"></div>
           <div class="dicebox"><div id="die1" class="die">⚀</div><div id="die2" class="die">⚀</div></div>
           <div id="turnInfo" class="turninfo"></div>
-          <div id="cardInfo" class="cardinfo"></div>
-          <div id="sqInfo" class="sqinfo">Нажми на клетку, чтобы увидеть детали</div>
+          <div id="crisisInfo" class="crisisinfo"></div>
+          <div id="sqInfo" class="sqinfo">Нажми на клетку, чтобы увидеть, что она делает</div>
         </div>
       </div>
     </div>
     <div class="panel">
       <div class="row between">
-        <div><b id="gRound"></b> <span class="muted" id="gPot"></span></div>
+        <div><b id="gRound"></b> <span class="muted" id="gFlags"></span></div>
         <div class="row"><span id="gTimer" class="timer"></span><button id="btnQuit" class="btn ghost small">Выйти</button></div>
       </div>
       <div id="gPlayers" class="players"></div>
+      <div id="myGoal" class="goal"></div>
       <div id="actions" class="actions"></div>
-      <div id="myStreets" class="streets"></div>
+      <div id="market" class="market"></div>
+      <div id="farm" class="farm"></div>
       <div id="gLog" class="log"></div>
     </div>
   </div>
 </section>
+
+<!-- Аукцион -->
+<div id="auction" class="modal hidden">
+  <div class="card">
+    <h2>🔨 Аукцион</h2>
+    <div id="aucCard" class="auccard"></div>
+    <div class="muted" id="aucInfo"></div>
+    <div class="row"><input id="aucBid" type="number" min="0" step="10" value="0"><button id="aucBtn" class="btn primary">Поставить</button><button id="aucPass" class="btn ghost">Пас</button></div>
+    <div id="aucWho" class="muted"></div>
+    <div id="aucTimer" class="timer"></div>
+  </div>
+</div>
 
 <!-- Итоги -->
 <section id="scr-end" class="screen">

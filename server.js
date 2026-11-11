@@ -4,10 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
-const { Game, BOARD, GROUP_COLORS } = require('./game');
+const { Game, STATIC } = require('./game');
 
 const PORT = process.env.PORT || 3000;
-const TURN_MS = +process.env.TURN_MS || 45000; // время на ход человека
+const T = process.env.TURN_MS ? +process.env.TURN_MS : 0;
+const PHASE_MS = { roll: T || 30000, cell: T || 30000, market: T || 75000, auction: T || 25000 }; // время человека на фазу
 const BOT_MS = +process.env.BOT_MS || 900; // пауза между действиями бота
 const PUB = path.join(__dirname, 'public');
 const DATA = path.join(__dirname, 'data');
@@ -80,9 +81,8 @@ function broadcastList() {
 function pushLobby(l) { for (const t of l.members) sendTo(t, { t: 'lobby', lobby: lobbyPublic(l, true) }); }
 function pushGame(l) {
   if (!l.game) return;
-  const view = l.game.view();
-  const msg = { t: 'game', deadline: l.deadline, now: Date.now(), view };
-  for (const t of l.members) sendTo(t, msg);
+  const now = Date.now();
+  for (const t of l.members) sendTo(t, { t: 'game', deadline: l.deadline, now, view: l.game.view(t) }); // у каждого свой вид: чужие цели скрыты
 }
 function destroyLobby(l) { clearTimeout(l.timer); lobbies.delete(l.id); broadcastList(); }
 
@@ -98,7 +98,7 @@ function leaveLobby(token) {
   if (!l.members.length) return destroyLobby(l);
   if (l.host === token) l.host = l.members[0];
   if (l.state === 'waiting') pushLobby(l);
-  else { pushGame(l); schedule(l); }
+  else schedule(l);
   broadcastList();
 }
 
@@ -108,36 +108,49 @@ function startGame(l) {
   const names = ['Альфа', 'Бета', 'Гамма', 'Дельта', 'Омега', 'Сигма'];
   const need = l.mode === 'bots' || l.fillBots ? l.max - players.length : 0;
   for (let i = 0; i < need; i++) players.push({ id: 'bot' + l.id + '_' + i, name: 'Бот ' + names[i % 6], isBot: true });
-  l.game = new Game({ players, turnLimit: l.rounds, startCash: l.startCash });
+  l.game = new Game({ players, rounds: l.rounds, startCash: l.startCash });
   l.state = 'playing';
   l.key = '';
   pushLobby(l);
-  pushGame(l);
   schedule(l);
   broadcastList();
 }
 
 function isOnlineHuman(l, p) { return !p.isBot && conns.has(p.id) && l.members.includes(p.id); }
 
+// Планирует следующий шаг (таймер человека или ход бота), считает дедлайн и рассылает состояние.
 function schedule(l) {
   clearTimeout(l.timer);
   const g = l.game;
   if (!g) return;
-  // все живые люди разорились — партия окончена
-  if (!g.finished && g.players.some((p) => p.human) && g.players.filter((p) => p.human).every((p) => p.bankrupt)) g.forceFinish();
   if (g.finished) return finishGame(l);
-  const p = g.curPlayer();
-  const human = isOnlineHuman(l, p);
-  const key = `${g.cur}:${g.phase}:${g.seq}:${g.again}`;
-  if (human) {
-    if (l.key !== key || !l.deadline) l.deadline = Date.now() + TURN_MS;
-  } else l.deadline = 0;
+  let delay, run, key;
+
+  if (g.phase === 'auction') {
+    const a = g.auction;
+    const pend = (human) => g.players.some((p) => isOnlineHuman(l, p) === human && g.auctionEligible(p) && a.bids[p.id] === undefined);
+    key = `a:${g.seq}:${g.round}`;
+    const humans = pend(true), bots = pend(false);
+    if (humans && (l.key !== key || !l.deadline)) l.deadline = Date.now() + PHASE_MS.auction;
+    if (!humans) l.deadline = 0;
+    if (bots) { delay = BOT_MS; run = () => g.botStep(); }
+    else if (humans) { delay = Math.max(300, l.deadline - Date.now()); run = () => g.autoStep(); }
+    else { delay = 0; run = () => g.autoStep(); }
+  } else {
+    const p = g.curPlayer();
+    const human = isOnlineHuman(l, p);
+    key = `${g.round}:${g.cur}:${g.phase}:${g.seq}`;
+    if (human) {
+      if (l.key !== key || !l.deadline) l.deadline = Date.now() + (PHASE_MS[g.phase] || 30000);
+      delay = Math.max(300, l.deadline - Date.now());
+      run = () => (isOnlineHuman(l, g.curPlayer()) && g.curPlayer().id === p.id ? g.autoStep() : g.botStep());
+    } else { l.deadline = 0; delay = BOT_MS; run = () => g.botStep(); }
+  }
   l.key = key;
-  const delay = human ? Math.max(500, l.deadline - Date.now()) : BOT_MS;
+  pushGame(l);
   l.timer = setTimeout(() => {
     if (l.game !== g || g.finished) return;
-    if (human && isOnlineHuman(l, g.curPlayer()) && g.curPlayer().id === p.id) g.autoStep(); else g.botStep();
-    pushGame(l);
+    try { run(); } catch (e) { console.error(e); }
     schedule(l);
   }, delay);
 }
@@ -164,6 +177,15 @@ function finishGame(l) {
 function clamp(n, a, b, d) { n = Math.trunc(Number(n)); return Number.isFinite(n) ? Math.max(a, Math.min(b, n)) : d; }
 const GATE = 'Сначала пройди обучение и сыграй одну партию с ботами';
 
+function cleanArg(a) {
+  if (a && typeof a === 'object') {
+    const o = {};
+    for (const k of ['k', 'coin', 'qty', 'dir', 'id', 'amount']) if (a[k] !== undefined) o[k] = typeof a[k] === 'string' ? a[k].slice(0, 8) : a[k];
+    return o;
+  }
+  return a;
+}
+
 function handle(ws, token, m) {
   const pr = profiles[token];
   switch (m.t) {
@@ -171,7 +193,7 @@ function handle(ws, token, m) {
     case 'list': send(ws, { t: 'lobbies', list: listOpen() }); break;
     case 'practice': {
       if (lobbyOf(token)) return send(ws, { t: 'err', msg: 'Сначала выйди из текущей комнаты' });
-      const l = { id: lobbySeq++, code: genCode(), name: 'Тренировка', mode: 'bots', private: true, max: clamp(m.bots, 1, 5, 3) + 1, rounds: clamp(m.rounds, 5, 40, 12), startCash: 1500, fillBots: true, state: 'waiting', host: token, members: [token], game: null, timer: null, deadline: 0 };
+      const l = { id: lobbySeq++, code: genCode(), name: 'Тренировка', mode: 'bots', private: true, max: clamp(m.bots, 1, 5, 3) + 1, rounds: clamp(m.rounds, 5, 40, 10), startCash: 1000, fillBots: true, state: 'waiting', host: token, members: [token], game: null, timer: null, deadline: 0 };
       lobbies.set(l.id, l); startGame(l); break;
     }
     case 'create': {
@@ -179,7 +201,7 @@ function handle(ws, token, m) {
       if (lobbyOf(token)) return send(ws, { t: 'err', msg: 'Сначала выйди из текущей комнаты' });
       const l = {
         id: lobbySeq++, code: genCode(), name: String(m.name || pr.name + ' — комната').slice(0, 24), mode: 'live', private: !!m.private,
-        max: clamp(m.max, 2, 6, 4), rounds: clamp(m.rounds, 5, 60, 20), startCash: clamp(m.startCash, 500, 5000, 1500),
+        max: clamp(m.max, 2, 6, 4), rounds: clamp(m.rounds, 5, 40, 12), startCash: clamp(m.startCash, 500, 5000, 1000),
         fillBots: !!m.fillBots, state: 'waiting', host: token, members: [token], game: null, timer: null, deadline: 0,
       };
       lobbies.set(l.id, l); pushLobby(l); broadcastList(); break;
@@ -204,15 +226,9 @@ function handle(ws, token, m) {
     case 'act': {
       const l = lobbyOf(token);
       if (!l || !l.game || l.game.finished) return;
-      const r = l.game.act(token, String(m.a), m.arg === undefined ? undefined : Number(m.arg));
+      const r = l.game.act(token, String(m.a), cleanArg(m.arg));
       if (!r.ok) return send(ws, { t: 'err', msg: r.err });
-      pushGame(l); schedule(l); break;
-    }
-    case 'chat': {
-      const l = lobbyOf(token); if (!l) return;
-      const text = String(m.text || '').slice(0, 140); if (!text) return;
-      for (const t of l.members) sendTo(t, { t: 'chat', from: pr.name, text });
-      break;
+      schedule(l); break;
     }
   }
 }
@@ -221,18 +237,19 @@ wss.on('connection', (ws) => {
   let token = null;
   ws.on('message', (raw) => {
     let m; try { m = JSON.parse(raw); } catch (_) { return; }
+    if (!m || typeof m !== 'object') return;
     if (m.t === 'hello') {
       token = String(m.token || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64) || crypto.randomUUID();
       const old = conns.get(token); if (old && old !== ws) { try { old.close(); } catch (_) {} }
       conns.set(token, ws);
       const pr = getProfile(token, String(m.name || '').trim().slice(0, 16));
       saveProfiles();
-      send(ws, { t: 'welcome', token, profile: pr, canLive: canLive(pr), board: BOARD, colors: GROUP_COLORS });
+      send(ws, { t: 'welcome', token, profile: pr, canLive: canLive(pr), ...STATIC });
       const l = lobbyOf(token);
       if (l) { // переподключение
         if (l.game) { const p = l.game.player(token); if (p) { p.isBot = false; p.name = pr.name; } }
         send(ws, { t: 'lobby', lobby: lobbyPublic(l, true) });
-        if (l.game) { pushGame(l); schedule(l); }
+        if (l.game) schedule(l);
       } else send(ws, { t: 'lobbies', list: listOpen() });
       return;
     }
@@ -247,9 +264,8 @@ wss.on('connection', (ws) => {
     if (l.state === 'waiting') { leaveLobby(token); return; }
     if (l.game) {
       const p = l.game.player(token);
-      if (p && !p.isBot) { p.isBot = true; }
-      schedule(l); // бот подхватит ход ушедшего
-      if (p && l.game.curPlayer().id === p.id) pushGame(l);
+      if (p && !p.isBot) p.isBot = true; // бот подхватит, пока игрок не вернётся
+      schedule(l);
     }
     if (!l.members.some((t) => conns.has(t))) setTimeout(() => { if (lobbies.has(l.id) && !l.members.some((t) => conns.has(t))) destroyLobby(l); }, 60000);
   });

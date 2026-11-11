@@ -1,402 +1,483 @@
 'use strict';
-// Block Barons — настольная игра: логика (оригинальные клетки, цены и карточки)
+// Block Barons — настольная игра про крипто-ферму. Оригинальные названия, цифры и карточки.
+// Ход: бросок -> клетка -> рынок (торговля, кредиты, удача, настройка карт). Конец раунда: добыча.
 
-const GROUP_COLORS = { g1: '#8b5cf6', g2: '#38bdf8', g3: '#f472b6', g4: '#fb923c', g5: '#ef4444', g6: '#facc15', g7: '#22c55e', g8: '#3b82f6' };
-
-const P = (name, g, price) => ({ type: 'prop', name, g, price });
-const SQ = [
-  { type: 'start', name: 'СТАРТ' },
-  P('Пиксель-аллея', 'g1', 60), { type: 'fund', name: 'Фонд' }, P('Токен-стрит', 'g1', 60),
-  { type: 'tax', name: 'Комиссия сети', amount: 200 },
-  { type: 'exch', name: 'Биржа Север', price: 200 },
-  P('Хеш-сквер', 'g2', 100), { type: 'event', name: 'Событие' }, P('Нод-бульвар', 'g2', 100), P('Блок-лейн', 'g2', 120),
-  { type: 'jail', name: 'Блокировка' },
-  P('Леджер-плаза', 'g3', 140), { type: 'util', name: 'Майнинг-ферма', price: 150 }, P('Стейк-роу', 'g3', 140), P('Валлет-парк', 'g3', 160),
-  { type: 'exch', name: 'Биржа Восток', price: 200 },
-  P('Смарт-авеню', 'g4', 180), { type: 'fund', name: 'Фонд' }, P('Газ-стрит', 'g4', 180), P('Форк-мост', 'g4', 200),
-  { type: 'park', name: 'Холодный кошелёк' },
-  P('Аирдроп-сити', 'g5', 220), { type: 'event', name: 'Событие' }, P('Дефай-холл', 'g5', 220), P('Минт-порт', 'g5', 240),
-  { type: 'exch', name: 'Биржа Юг', price: 200 },
-  P('Орбит-тауэр', 'g6', 260), P('Нейро-парк', 'g6', 260), { type: 'util', name: 'Дата-центр', price: 150 }, P('Квант-холл', 'g6', 280),
-  { type: 'gojail', name: 'Бан биржи' },
-  P('Генезис-бульвар', 'g7', 300), P('Сатоши-сквер', 'g7', 300), { type: 'fund', name: 'Фонд' }, P('Вэйв-авеню', 'g7', 320),
-  { type: 'exch', name: 'Биржа Запад', price: 200 },
-  { type: 'event', name: 'Событие' }, P('Барон-плаза', 'g8', 350),
-  { type: 'tax', name: 'Налог на майнинг', amount: 100 },
-  P('Блок-тауэр', 'g8', 400),
+const COINS = [
+  { id: 'N', name: 'Нова', color: '#a56bff', prices: [5, 12, 20, 30, 40, 50, 65, 80, 100, 125], move: [-2, -1, 0, 0, 1, 2] }, // нестабильная
+  { id: 'A', name: 'Атлас', color: '#3ee6c4', prices: [15, 22, 30, 40, 50, 60, 70, 80, 90, 100], move: [-1, -1, 0, 0, 1, 1] }, // стабильная
 ];
-SQ.forEach((s, i) => {
-  s.i = i;
-  if (s.type === 'prop') {
-    const b = Math.floor(s.price / 30);
-    s.rents = [b, 5 * b, 15 * b, 45 * b, 80 * b, 125 * b];
-    s.cost = Math.round((s.price * 0.8) / 10) * 10;
-    s.color = GROUP_COLORS[s.g];
-  }
-});
-const GROUPS = {};
-SQ.forEach((s) => { if (s.type === 'prop') (GROUPS[s.g] = GROUPS[s.g] || []).push(s.i); });
-
-const EVENT_CARDS = [
-  { t: 'Рынок взлетел! Получи $150', gain: 150 },
-  { t: 'Налоговая проверка: заплати $100', pay: 100 },
-  { t: 'Отправляйся на СТАРТ', moveTo: 0 },
-  { t: 'Бан биржи: отправляйся в Блокировку', jail: true },
-  { t: 'Откат сети: отступи на 3 клетки', moveBy: -3 },
-  { t: 'Карта «Выход из Блокировки»', jailFree: true },
-  { t: 'Хард-форк: ремонт ферм, $25 за дом и $100 за отель', repairs: [25, 100] },
-  { t: 'Отправляйся на Блок-тауэр', moveTo: 39 },
-  { t: 'Вывод стейкинга: получи $50', gain: 50 },
-  { t: 'Штраф за газ: заплати $60', pay: 60 },
+const COIN_IDS = ['N', 'A'];
+const CARDS = [
+  { tier: 1, name: 'Старт-карта', power: 1, cost: 200 },
+  { tier: 2, name: 'Про-карта', power: 3, cost: 500 },
+  { tier: 3, name: 'Квант-рига', power: 6, cost: 1100 },
 ];
-const FUND_CARDS = [
-  { t: 'Дивиденды фонда: получи $100', gain: 100 },
-  { t: 'День рождения: получи по $20 с каждого игрока', collectEach: 20 },
-  { t: 'Взнос в фонд: заплати каждому игроку по $25', payEach: 25 },
-  { t: 'Возврат комиссий: получи $40', gain: 40 },
-  { t: 'Лечение серверов: заплати $80', pay: 80 },
-  { t: 'Отправляйся на Пиксель-аллею', moveTo: 1 },
-  { t: 'Карта «Выход из Блокировки»', jailFree: true },
-  { t: 'Аудит: заплати $50', pay: 50 },
-  { t: 'Грант разработчику: получи $200', gain: 200 },
-  { t: 'Ошибка в кошельке: заплати $30', pay: 30 },
+const LOANS = { 10: { rate: 0.1, amount: 500 }, 20: { rate: 0.2, amount: 1000 } };
+const SLOT_COST = 300, MAX_SLOTS = 6, START_SLOTS = 2, ELEC = 20, SHOP_DISC = 0.8, SLOT_VALUE = 100;
+const PASS_START = 100, WORK_PAY = 150, LOTTERY_FEE = 50, MAX_LUCK = 5, LUCK_PER_TURN = 2, MAX_IDX = 9;
+const GOAL_BONUS = 500;
+
+const BOARD = [
+  ['start', 'СТАРТ'], ['work', 'Работа'], ['shop', 'Магазин карт'], ['lottery', 'Лотерея'], ['crisis', 'Кризис'], ['strike', 'Майнинг-рывок'], ['auction', 'Аукцион'],
+  ['reversal', 'Разворот рынка'], ['work', 'Работа'], ['expand', 'Расширение фермы'], ['tax', 'Счёт за свет'], ['luck', 'Удача'], ['hack', 'Хакеры'],
+  ['lottery', 'Лотерея'], ['auction', 'Аукцион'], ['work', 'Работа'], ['crisis', 'Кризис'], ['shop', 'Магазин карт'], ['boom', 'Биржевой бум'],
+  ['luck', 'Удача'], ['strike', 'Майнинг-рывок'], ['expand', 'Расширение фермы'], ['investor', 'Инвестор'], ['reversal', 'Разворот рынка'],
+].map(([type, name], i) => ({ i, type, name }));
+const N_CELLS = BOARD.length;
+
+const GOALS = [
+  { id: 'miner', text: 'Владей 4 видеокартами', ok: (p) => p.cards.length >= 4 },
+  { id: 'hodl', text: 'Накопи 12 монет (Нова + Атлас)', ok: (p) => p.coins.N + p.coins.A >= 12 },
+  { id: 'nodebt', text: 'Закончи игру без кредитов', ok: (p) => p.loans[10] + p.loans[20] === 0 },
+  { id: 'rich', text: 'Закончи игру с $2500 наличными', ok: (p) => p.cash >= 2500 },
+  { id: 'quant', text: 'Владей Квант-ригой', ok: (p) => p.cards.some((c) => c.tier === 3) },
+  { id: 'mix', text: 'Держи не меньше 4 монет каждого вида', ok: (p) => p.coins.N >= 4 && p.coins.A >= 4 },
+  { id: 'worker', text: 'Останови фишку на «Работе» 3 раза', ok: (p) => p.workStops >= 3 },
 ];
 
-const PASS_START = 200;
-const JAIL_FEE = 50;
+const CRISES = [
+  { t: 'Блэкаут в сети: в этом раунде добычи нет', fx: (g) => { g.flags.noProfit = true; } },
+  { t: 'Запрет бирж: Нова падает на 3', fx: (g) => g.shift('N', -3) },
+  { t: 'Крипто-хайп: оба курса растут на 1', fx: (g) => { g.shift('N', 1); g.shift('A', 1); } },
+  { t: 'Взлом биржи: Атлас падает на 3', fx: (g) => g.shift('A', -3) },
+  { t: 'Скачок цен на энергию: электричество ×2 в этом раунде', fx: (g) => { g.flags.elecX2 = true; } },
+  { t: 'Налоговая проверка: все платят 5% наличных', fx: (g) => { for (const p of g.players) g.forcePay(p, Math.floor(p.cash * 0.05)); } },
+  { t: 'Халвинг: добыча в этом раунде вдвое меньше', fx: (g) => { g.flags.halve = true; } },
+  { t: 'Волна покупок: Нова растёт на 3', fx: (g) => g.shift('N', 3) },
+];
+
 const rnd = (n) => Math.floor(Math.random() * n);
 const pick = (a) => a[rnd(a.length)];
 const die = () => 1 + rnd(6);
+const clampI = (x, a, b) => Math.max(a, Math.min(b, x));
+const fail = (err) => ({ ok: false, err });
+const OK = { ok: true };
 
 class Game {
   constructor(opts) {
-    this.startCash = opts.startCash || 1500;
-    this.turnLimit = opts.turnLimit || 20;
+    this.rounds = opts.rounds || 12;
+    this.startCash = opts.startCash || 1000;
+    this.cardSeq = 1;
+    this.idx = { N: 4, A: 4 };
+    this.lastDelta = { N: 0, A: 0 };
+    this.history = { N: [this.price('N')], A: [this.price('A')] };
     this.players = opts.players.map((p, i) => ({
       id: p.id, name: p.name, isBot: !!p.isBot, human: !p.isBot, color: i,
-      cash: this.startCash, pos: 0, jail: 0, jailCards: 0, bankrupt: false, doubles: 0, anim: 'jump',
+      cash: this.startCash, coins: { N: 0, A: 0 }, slots: START_SLOTS, luck: 1, luckUsed: 0,
+      loans: { 10: 0, 20: 0 }, pos: 0, workStops: 0,
+      cards: [{ id: this.cardSeq++, tier: 1, coin: i % 2 ? 'A' : 'N' }],
+      goal: pick(GOALS).id,
     }));
-    this.owner = Array(40).fill(null);
-    this.lvl = Array(40).fill(0);
-    this.cur = 0;
     this.round = 1;
-    this.phase = 'roll'; // roll | buy | end
-    this.again = false;
+    this.cur = 0;
+    this.phase = 'roll'; // roll | cell | market | auction | over
     this.pending = null;
+    this.auction = null;
     this.dice = [0, 0];
-    this.seq = 0; // растёт при каждом броске (для анимации кубиков)
-    this.pot = 0;
-    this.card = null; // последняя вытянутая карточка
+    this.seq = 0;
+    this.flags = {};
+    this.crisis = null;
     this.log = [];
     this.finished = false;
-    this.say(`Игра началась! Ходит ${this.players[0].name}.`);
+    this.say(`Игра началась! Курс: Нова $${this.price('N')}, Атлас $${this.price('A')}. Ходит ${this.players[0].name}.`);
   }
 
-  say(t) { this.log.push(t); if (this.log.length > 40) this.log.shift(); }
+  say(t) { this.log.push(t); if (this.log.length > 60) this.log.shift(); }
+  price(c) { return COINS.find((x) => x.id === c).prices[this.idx[c]]; }
   curPlayer() { return this.players[this.cur]; }
   player(id) { return this.players.find((p) => p.id === id); }
-  alive() { return this.players.filter((p) => !p.bankrupt); }
-  ownedBy(p) { return SQ.filter((s) => this.owner[s.i] === p.id); }
+  freeSlots(p) { return p.slots - p.cards.length; }
+  debt(p) { return p.loans[10] + p.loans[20]; }
 
   worth(p) {
-    if (p.bankrupt) return 0;
-    let w = p.cash;
-    for (const s of this.ownedBy(p)) { w += s.price; if (s.type === 'prop') w += this.lvl[s.i] * s.cost; }
-    return w;
+    return Math.round(p.cash + p.coins.N * this.price('N') + p.coins.A * this.price('A')
+      + p.cards.reduce((s, c) => s + CARDS[c.tier - 1].cost / 2, 0) + p.slots * SLOT_VALUE - this.debt(p));
   }
 
-  // ---------- аренда ----------
-  rentFor(s, diceTotal) {
-    const ow = this.owner[s.i];
-    if (s.type === 'prop') {
-      const l = this.lvl[s.i];
-      let r = s.rents[l];
-      if (l === 0 && GROUPS[s.g].every((i) => this.owner[i] === ow)) r *= 2;
-      return r;
+  // ---------- курсы ----------
+  shift(c, d) {
+    const old = this.idx[c];
+    this.idx[c] = clampI(old + d, 0, MAX_IDX);
+    const real = this.idx[c] - old;
+    this.say(`${COINS.find((x) => x.id === c).name}: ${real >= 0 ? '▲' : '▼'} $${this.price(c)}`);
+    return real;
+  }
+  rollRates() {
+    for (const c of COIN_IDS) {
+      const d = COINS.find((x) => x.id === c).move[rnd(6)];
+      const old = this.idx[c];
+      this.idx[c] = clampI(old + d, 0, MAX_IDX);
+      this.lastDelta[c] = this.idx[c] - old;
+      this.history[c].push(this.price(c));
     }
-    if (s.type === 'exch') {
-      const n = SQ.filter((x) => x.type === 'exch' && this.owner[x.i] === ow).length;
-      return 25 * 2 ** (n - 1);
-    }
-    const n = SQ.filter((x) => x.type === 'util' && this.owner[x.i] === ow).length;
-    return diceTotal * (n === 2 ? 10 : 4);
+    this.say(`Курсы раунда ${this.round}: Нова $${this.price('N')}, Атлас $${this.price('A')}.`);
   }
 
   // ---------- деньги ----------
-  // Платёж: сначала наличные, затем автоматическая продажа домов; иначе банкротство.
-  pay(p, amount, to) {
-    if (amount <= 0) return true;
-    while (p.cash < amount) {
-      const houses = this.ownedBy(p).filter((s) => s.type === 'prop' && this.lvl[s.i] > 0).sort((a, b) => this.lvl[b.i] - this.lvl[a.i]);
-      if (!houses.length) break;
-      const s = houses[0]; this.lvl[s.i]--; p.cash += Math.floor(s.cost / 2);
+  forcePay(p, amt) {
+    if (amt <= 0) return;
+    while (p.cash < amt) {
+      const c = COIN_IDS.filter((x) => p.coins[x] > 0).sort((a, b) => p.coins[b] * this.price(b) - p.coins[a] * this.price(a))[0];
+      if (!c) break;
+      const q = Math.min(p.coins[c], Math.ceil((amt - p.cash) / this.price(c)));
+      p.coins[c] -= q; p.cash += q * this.price(c);
+      this.say(`${p.name} вынужден продать ${q} ${c === 'N' ? 'Новы' : 'Атласа'}.`);
     }
-    if (p.cash >= amount) {
-      p.cash -= amount;
-      if (to) to.cash += amount;
-      return true;
+    while (p.cash < amt && p.cards.length) {
+      p.cards.sort((a, b) => a.tier - b.tier);
+      const c = p.cards.shift(); p.cash += CARDS[c.tier - 1].cost / 2;
+      this.say(`${p.name} вынужден продать «${CARDS[c.tier - 1].name}».`);
     }
-    this.goBankrupt(p, to);
-    return false;
+    if (p.cash >= amt) { p.cash -= amt; return; }
+    const short = amt - p.cash; p.cash = 0; p.loans[20] += short;
+    this.say(`${p.name} не хватило $${short}: долг вырос.`);
   }
 
-  goBankrupt(p, to) {
-    this.say(`${p.name} обанкротился!`);
-    if (to) { to.cash += Math.max(0, p.cash); }
-    p.cash = 0; p.bankrupt = true;
-    for (const s of this.ownedBy(p)) { this.owner[s.i] = to ? to.id : null; this.lvl[s.i] = 0; }
-    this.checkWinner();
+  // ---------- раунд ----------
+  startRound() {
+    this.rollRates();
+    if (Math.random() < 0.25) this.drawCrisis('Кризис раунда');
+  }
+  drawCrisis(who) {
+    const c = pick(CRISES);
+    this.crisis = { text: c.t, who };
+    this.say(`⚠ ${c.t}`);
+    c.fx(this);
   }
 
-  checkWinner() {
-    if (this.alive().length <= 1) { this.finish(); return true; }
-    return false;
+  endRound() {
+    const parts = [];
+    if (this.flags.noProfit) this.say('Блэкаут: добыча в этом раунде пропущена.');
+    else {
+      for (const p of this.players) {
+        let elec = 0; const got = { N: 0, A: 0 };
+        for (const c of p.cards) {
+          if (c.coin === 'off') continue;
+          const def = CARDS[c.tier - 1];
+          let y = def.power; if (this.flags.halve) y = Math.max(1, Math.floor(y / 2));
+          p.coins[c.coin] += y; got[c.coin] += y;
+          elec += def.power * ELEC * (this.flags.elecX2 ? 2 : 1);
+        }
+        if (elec) this.forcePay(p, elec);
+        if (got.N || got.A) parts.push(`${p.name}: +${got.N} Н, +${got.A} А, свет −$${elec}`);
+      }
+      if (parts.length) this.say('Добыча: ' + parts.join(' · '));
+    }
+    for (const p of this.players) {
+      const interest = Math.round(p.loans[10] * LOANS[10].rate + p.loans[20] * LOANS[20].rate);
+      if (interest) { this.say(`${p.name} платит проценты: $${interest}`); this.forcePay(p, interest); }
+    }
+    this.flags = {};
+    this.round++;
+    if (this.round > this.rounds) return this.finish();
+    this.startRound();
   }
 
   finish() {
     if (this.finished) return;
-    this.finished = true; this.phase = 'over';
-    const st = this.standings();
-    this.say(`Игра окончена. Победитель: ${st[0].name}.`);
+    this.finished = true; this.phase = 'over'; this.auction = null; this.pending = null;
+    this.say(`Игра окончена. Победитель: ${this.standings()[0].name}.`);
   }
   forceFinish() { this.finish(); }
 
   standings() {
-    return this.players
-      .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, worth: this.worth(p), bankrupt: p.bankrupt, color: p.color }))
-      .sort((a, b) => b.worth - a.worth);
+    return this.players.map((p) => {
+      const g = GOALS.find((x) => x.id === p.goal);
+      const done = g.ok(p), worth = this.worth(p);
+      return { id: p.id, name: p.name, isBot: p.isBot, color: p.color, worth, goal: g.text, done, bonus: done ? GOAL_BONUS : 0, score: worth + (done ? GOAL_BONUS : 0) };
+    }).sort((a, b) => b.score - a.score);
   }
 
-  // ---------- движение ----------
-  advance(p, steps, anim) {
-    const old = p.pos;
-    p.pos = (old + steps) % 40;
-    p.anim = anim;
-    if (old + steps >= 40) { p.cash += PASS_START; this.say(`${p.name} проходит СТАРТ: +$${PASS_START}`); }
-  }
-  jumpTo(p, idx, collect) {
-    if (collect && idx < p.pos) { p.cash += PASS_START; this.say(`${p.name} проходит СТАРТ: +$${PASS_START}`); }
-    p.pos = idx; p.anim = 'jump';
-  }
-  sendJail(p) {
-    p.pos = 10; p.jail = 3; p.anim = 'jump'; p.doubles = 0; this.again = false;
-    this.say(`${p.name} попадает в Блокировку.`);
-  }
-
+  // ---------- движение и клетки ----------
   landOn(p) {
-    const s = SQ[p.pos];
-    const total = this.dice[0] + this.dice[1];
+    const cell = BOARD[p.pos];
     this.pending = null;
-    switch (s.type) {
-      case 'prop': case 'exch': case 'util': {
-        const ow = this.owner[s.i];
-        if (ow === null) {
-          if (p.cash >= s.price) { this.phase = 'buy'; this.pending = s.i; this.say(`${p.name} на клетке «${s.name}» ($${s.price}).`); return; }
-          this.say(`${p.name} на клетке «${s.name}», но денег не хватает.`);
-        } else if (ow !== p.id) {
-          const owner = this.player(ow);
-          if (!owner.bankrupt) {
-            const r = this.rentFor(s, total);
-            this.say(`${p.name} платит ${owner.name} аренду $${r} («${s.name}»).`);
-            this.pay(p, r, owner);
-          }
-        }
+    const toMarket = () => { this.phase = 'market'; };
+    switch (cell.type) {
+      case 'work': p.cash += WORK_PAY; p.workStops++; this.say(`${p.name} работает: +$${WORK_PAY}.`); break;
+      case 'shop':
+        if (this.freeSlots(p) > 0 && p.cash >= CARDS[0].cost * SHOP_DISC) { this.phase = 'cell'; this.pending = { type: 'shop' }; this.say(`${p.name} в магазине карт (скидка 20%).`); return; }
+        this.say(`${p.name} в магазине, но купить не может (нет слота или денег).`); break;
+      case 'expand':
+        if (p.slots < MAX_SLOTS && p.cash >= SLOT_COST) { this.phase = 'cell'; this.pending = { type: 'expand' }; this.say(`${p.name} может расширить ферму за $${SLOT_COST}.`); return; }
+        this.say(`${p.name}: расширить ферму не получилось.`); break;
+      case 'lottery':
+        if (p.cash >= LOTTERY_FEE) { this.phase = 'cell'; this.pending = { type: 'lottery' }; this.say(`${p.name} у лотереи (билет $${LOTTERY_FEE}).`); return; }
+        break;
+      case 'auction': if (this.startAuction()) return; this.say('На аукцион некому ставить: нет свободных слотов.'); break;
+      case 'crisis': this.drawCrisis(p.name); break;
+      case 'strike': {
+        const got = { N: 0, A: 0 };
+        for (const c of p.cards) if (c.coin !== 'off') { const y = CARDS[c.tier - 1].power; p.coins[c.coin] += y; got[c.coin] += y; }
+        this.say(`${p.name}: майнинг-рывок! +${got.N} Нова, +${got.A} Атлас без расходов на свет.`); break;
+      }
+      case 'reversal':
+        for (const c of COIN_IDS) { const old = this.idx[c]; this.idx[c] = clampI(old - this.lastDelta[c], 0, MAX_IDX); this.lastDelta[c] = this.idx[c] - old; }
+        this.say(`Разворот рынка! Нова $${this.price('N')}, Атлас $${this.price('A')}.`); break;
+      case 'tax': { const s = 20 * p.cards.length; this.say(`${p.name} платит за свет: $${s}.`); this.forcePay(p, s); break; }
+      case 'luck': p.luck = Math.min(MAX_LUCK, p.luck + 1); this.say(`${p.name} получает очко удачи.`); break;
+      case 'hack': {
+        const c = p.coins.N * this.price('N') >= p.coins.A * this.price('A') ? 'N' : 'A';
+        if (p.coins[c] > 0) { p.coins[c]--; this.say(`Хакеры украли у ${p.name} 1 ${c === 'N' ? 'Нову' : 'Атлас'}!`); } else this.say(`Хакеры ничего не нашли у ${p.name}.`);
         break;
       }
-      case 'tax': this.say(`${p.name} платит «${s.name}»: $${s.amount}.`); if (this.pay(p, s.amount, null)) this.pot += s.amount; break;
-      case 'park': if (this.pot > 0) { this.say(`${p.name} забирает банк «Холодного кошелька»: +$${this.pot}.`); p.cash += this.pot; this.pot = 0; } else this.say(`${p.name} отдыхает в Холодном кошельке.`); break;
-      case 'gojail': this.sendJail(p); break;
-      case 'event': case 'fund': this.drawCard(p, s.type); return;
+      case 'boom': {
+        const c = p.coins.N === p.coins.A ? pick(COIN_IDS) : (p.coins.N > p.coins.A ? 'N' : 'A');
+        this.say(`${p.name}: биржевой бум!`); this.shift(c, 2); break;
+      }
+      case 'investor': { const s = 40 * p.cards.length; p.cash += s; this.say(`${p.name}: инвестор вложился, +$${s}.`); break; }
       default: break;
     }
-    if (!this.finished && this.phase !== 'buy') this.phase = 'end';
+    toMarket();
   }
 
-  drawCard(p, kind) {
-    const c = pick(kind === 'event' ? EVENT_CARDS : FUND_CARDS);
-    this.card = { kind, text: c.t, who: p.name };
-    this.say(`${p.name}: «${c.t}»`);
-    const others = this.alive().filter((x) => x.id !== p.id);
-    if (c.gain) p.cash += c.gain;
-    else if (c.pay) { if (this.pay(p, c.pay, null)) this.pot += c.pay; }
-    else if (c.collectEach) { for (const o of others) { if (this.pay(o, c.collectEach, p) === false && this.finished) return; } }
-    else if (c.payEach) { for (const o of others) { if (!this.pay(p, c.payEach, o)) break; } }
-    else if (c.jailFree) p.jailCards++;
-    else if (c.jail) this.sendJail(p);
-    else if (c.repairs) {
-      let sum = 0;
-      for (const s of this.ownedBy(p)) if (s.type === 'prop') { const l = this.lvl[s.i]; sum += l === 5 ? c.repairs[1] : l * c.repairs[0]; }
-      if (sum) this.pay(p, sum, null);
-    } else if (c.moveTo !== undefined) { this.jumpTo(p, c.moveTo, true); this.landOn(p); return; }
-    else if (c.moveBy) { const to = (p.pos + 40 + c.moveBy) % 40; this.jumpTo(p, to, false); this.landOn(p); return; }
-    if (!this.finished && !p.bankrupt && this.phase !== 'buy') this.phase = 'end';
-    if (p.bankrupt && !this.finished) { this.phase = 'end'; this.again = false; }
+  startAuction() {
+    if (!this.players.some((p) => this.auctionEligible(p))) return false;
+    const r = Math.random();
+    const tier = r < 0.6 ? 1 : r < 0.9 ? 2 : 3;
+    this.auction = { tier, bids: {} };
+    this.phase = 'auction';
+    this.say(`Аукцион: «${CARDS[tier - 1].name}» (цена в магазине $${CARDS[tier - 1].cost}). Ставки тайные!`);
+    return true;
+  }
+  auctionEligible(p) { return this.freeSlots(p) > 0 && p.cash > 0; }
+  bid(p, arg) {
+    if (this.phase !== 'auction' || !this.auction) return fail('Сейчас нет аукциона');
+    if (!this.auctionEligible(p)) return fail('У тебя нет свободного слота или денег');
+    if (this.auction.bids[p.id] !== undefined) return fail('Ты уже сделал ставку');
+    const raw = typeof arg === 'object' && arg ? arg.amount : arg;
+    const amount = Math.trunc(Number(raw));
+    if (!Number.isFinite(amount) || amount < 0) return fail('Неверная ставка');
+    if (amount > p.cash) return fail('Не хватает денег');
+    this.auction.bids[p.id] = amount;
+    if (this.players.filter((x) => this.auctionEligible(x)).every((x) => this.auction.bids[x.id] !== undefined)) this.resolveAuction();
+    return OK;
+  }
+  resolveAuction() {
+    const a = this.auction; if (!a) return;
+    const n = this.players.length;
+    let best = null;
+    for (let k = 0; k < n; k++) { // при равных ставках выигрывает ближайший по порядку хода
+      const p = this.players[(this.cur + k) % n];
+      const b = a.bids[p.id];
+      if (b > 0 && (!best || b > best.b)) best = { p, b };
+    }
+    if (best) {
+      best.p.cash -= best.b;
+      const coin = this.price('N') >= this.price('A') ? 'N' : 'A';
+      best.p.cards.push({ id: this.cardSeq++, tier: a.tier, coin });
+      this.say(`${best.p.name} выигрывает аукцион: «${CARDS[a.tier - 1].name}» за $${best.b}.`);
+    } else this.say('Аукцион: никто не поставил, карта снята.');
+    this.auction = null; this.phase = 'market';
   }
 
   // ---------- действия игрока ----------
   act(id, action, arg) {
-    const res = this._act(id, action, arg);
-    // если игрок разорился в свой ход, ход сразу переходит дальше
-    let guard = 0;
-    while (!this.finished && this.curPlayer().bankrupt && guard++ < 10) { this.again = false; this.pending = null; this.endTurn(this.curPlayer()); }
-    return res;
-  }
-
-  _act(id, action, arg) {
-    if (this.finished) return { ok: false, err: 'Игра окончена' };
+    if (this.finished) return fail('Игра окончена');
     const p = this.player(id);
-    if (!p || p.bankrupt) return { ok: false, err: 'Ты не в игре' };
-    if (this.curPlayer().id !== id) return { ok: false, err: 'Сейчас не твой ход' };
-    const fail = (err) => ({ ok: false, err });
+    if (!p) return fail('Ты не в игре');
+    if (action === 'bid') return this.bid(p, arg);
+    if (this.curPlayer().id !== id) return fail('Сейчас не твой ход');
+    const o = typeof arg === 'object' && arg ? arg : { k: arg };
     switch (action) {
       case 'roll': {
         if (this.phase !== 'roll') return fail('Бросать сейчас нельзя');
-        this.doRoll(p); return { ok: true };
+        const a = die(), b = die();
+        this.dice = [a, b]; this.seq++;
+        const old = p.pos; p.pos = (old + a + b) % N_CELLS; p.anim = 'walk';
+        this.say(`${p.name} бросает ${a} и ${b}.`);
+        if (old + a + b >= N_CELLS) { p.cash += PASS_START; this.say(`${p.name} проходит СТАРТ: +$${PASS_START}.`); }
+        this.landOn(p);
+        return OK;
       }
-      case 'buy': {
-        if (this.phase !== 'buy') return fail('Нечего покупать');
-        const s = SQ[this.pending];
-        if (p.cash < s.price) return fail('Не хватает денег');
-        p.cash -= s.price; this.owner[s.i] = p.id; this.pending = null; this.phase = 'end';
-        this.say(`${p.name} покупает «${s.name}» за $${s.price}.`); return { ok: true };
+      case 'skip':
+        if (this.phase !== 'cell') return fail('Нечего пропускать');
+        this.pending = null; this.phase = 'market'; return OK;
+      case 'buyCard': {
+        if (this.phase !== 'cell' || !this.pending || this.pending.type !== 'shop') return fail('Здесь нет магазина');
+        const def = CARDS[Number(o.k) - 1]; if (!def) return fail('Нет такой карты');
+        const cost = Math.round(def.cost * SHOP_DISC);
+        if (this.freeSlots(p) <= 0) return fail('Нет свободного слота');
+        if (p.cash < cost) return fail('Не хватает денег');
+        p.cash -= cost;
+        const coin = this.price('N') >= this.price('A') ? 'N' : 'A';
+        p.cards.push({ id: this.cardSeq++, tier: def.tier, coin });
+        this.say(`${p.name} покупает «${def.name}» за $${cost}.`);
+        this.pending = null; this.phase = 'market'; return OK;
       }
-      case 'decline': {
-        if (this.phase !== 'buy') return fail('Нечего покупать');
-        this.say(`${p.name} отказывается от покупки.`); this.pending = null; this.phase = 'end'; return { ok: true };
+      case 'buySlot':
+        if (this.phase !== 'cell' || !this.pending || this.pending.type !== 'expand') return fail('Здесь нельзя расширяться');
+        if (p.slots >= MAX_SLOTS) return fail('Ферма уже максимальная');
+        if (p.cash < SLOT_COST) return fail('Не хватает денег');
+        p.cash -= SLOT_COST; p.slots++;
+        this.say(`${p.name} расширяет ферму: слотов ${p.slots}.`);
+        this.pending = null; this.phase = 'market'; return OK;
+      case 'playLottery': {
+        if (this.phase !== 'cell' || !this.pending || this.pending.type !== 'lottery') return fail('Здесь нет лотереи');
+        if (p.cash < LOTTERY_FEE) return fail('Не хватает денег');
+        p.cash -= LOTTERY_FEE;
+        const d = die(), prize = d <= 3 ? 0 : d === 4 ? 100 : d === 5 ? 200 : 400;
+        p.cash += prize;
+        this.say(`${p.name} играет в лотерею: выпало ${d}${prize ? `, выигрыш $${prize}` : ', ничего'}.`);
+        this.pending = null; this.phase = 'market'; return OK;
+      }
+      case 'trade': {
+        if (this.phase !== 'market') return fail('Торговать можно после клетки');
+        const c = o.coin; if (!COIN_IDS.includes(c)) return fail('Неизвестная монета');
+        const q = Math.trunc(Number(o.qty));
+        if (!q || Math.abs(q) > 100) return fail('Неверное количество');
+        const pr = this.price(c);
+        if (q > 0) { if (p.cash < q * pr) return fail('Не хватает денег'); p.cash -= q * pr; p.coins[c] += q; }
+        else { if (p.coins[c] < -q) return fail('Нет столько монет'); p.coins[c] += q; p.cash += -q * pr; }
+        return OK;
+      }
+      case 'loan': {
+        if (this.phase !== 'market') return fail('Кредит берут на этапе рынка');
+        const k = Number(o.k); if (!LOANS[k]) return fail('Нет такого кредита');
+        if (p.loans[k] > 0) return fail('Этот кредит уже взят');
+        p.cash += LOANS[k].amount; p.loans[k] = LOANS[k].amount;
+        this.say(`${p.name} берёт кредит $${LOANS[k].amount} под ${k}%.`); return OK;
+      }
+      case 'repay': {
+        if (this.phase !== 'market') return fail('Погашать можно на этапе рынка');
+        const k = Number(o.k); if (!LOANS[k] || p.loans[k] <= 0) return fail('Нечего гасить');
+        if (p.cash < p.loans[k]) return fail('Не хватает денег');
+        p.cash -= p.loans[k]; this.say(`${p.name} гасит кредит ${k}% ($${p.loans[k]}).`); p.loans[k] = 0; return OK;
+      }
+      case 'luck': {
+        if (this.phase !== 'market') return fail('Удачу тратят на этапе рынка');
+        const c = o.coin; if (!COIN_IDS.includes(c)) return fail('Неизвестная монета');
+        const dir = Number(o.dir) > 0 ? 1 : -1;
+        if (p.luck < 1) return fail('Нет очков удачи');
+        if (p.luckUsed >= LUCK_PER_TURN) return fail(`За ход можно потратить максимум ${LUCK_PER_TURN} очка удачи`);
+        p.luck--; p.luckUsed++;
+        this.say(`${p.name} тратит удачу:`); this.shift(c, dir); return OK;
+      }
+      case 'assign': {
+        if (this.phase !== 'market') return fail('Менять добычу можно на этапе рынка');
+        const card = p.cards.find((c) => c.id === Number(o.id));
+        if (!card) return fail('Нет такой карты');
+        if (!['N', 'A', 'off'].includes(o.coin)) return fail('Неверный режим');
+        card.coin = o.coin; return OK;
       }
       case 'endTurn': {
-        if (this.phase !== 'end') return fail('Ход ещё не закончен');
-        this.endTurn(p); return { ok: true };
-      }
-      case 'payJail': {
-        if (this.phase !== 'roll' || p.jail <= 0) return fail('Ты не в Блокировке');
-        if (p.cash < JAIL_FEE) return fail('Не хватает денег');
-        p.cash -= JAIL_FEE; this.pot += JAIL_FEE; p.jail = 0; this.say(`${p.name} платит $${JAIL_FEE} и выходит из Блокировки.`); return { ok: true };
-      }
-      case 'useCard': {
-        if (this.phase !== 'roll' || p.jail <= 0 || p.jailCards <= 0) return fail('Нельзя использовать карту');
-        p.jailCards--; p.jail = 0; this.say(`${p.name} использует карту и выходит из Блокировки.`); return { ok: true };
-      }
-      case 'build': {
-        if (this.phase === 'buy') return fail('Сначала реши с покупкой');
-        const r = this.canBuild(p, arg); if (r !== true) return fail(r);
-        const s = SQ[arg]; p.cash -= s.cost; this.lvl[arg]++;
-        this.say(`${p.name} строит на «${s.name}» (уровень ${this.lvl[arg]}).`); return { ok: true };
-      }
-      case 'sell': {
-        if (this.phase === 'buy') return fail('Сначала реши с покупкой');
-        const s = SQ[arg];
-        if (!s || s.type !== 'prop' || this.owner[arg] !== p.id || this.lvl[arg] <= 0) return fail('Нечего продавать');
-        const max = Math.max(...GROUPS[s.g].map((i) => this.lvl[i]));
-        if (this.lvl[arg] < max) return fail('Продавай сначала с самой застроенной улицы группы');
-        this.lvl[arg]--; p.cash += Math.floor(s.cost / 2);
-        this.say(`${p.name} продаёт строение на «${s.name}».`); return { ok: true };
+        if (this.phase !== 'market') return fail('Ход ещё не закончен');
+        this.endTurn(p); return OK;
       }
       default: return fail('Неизвестное действие');
     }
   }
 
-  canBuild(p, idx) {
-    const s = SQ[idx];
-    if (!s || s.type !== 'prop') return 'Тут нельзя строить';
-    if (this.owner[idx] !== p.id) return 'Это не твоя улица';
-    if (!GROUPS[s.g].every((i) => this.owner[i] === p.id)) return 'Нужна вся цветовая группа';
-    if (this.lvl[idx] >= 5) return 'Уже максимум';
-    const min = Math.min(...GROUPS[s.g].map((i) => this.lvl[i]));
-    if (this.lvl[idx] > min) return 'Строй равномерно по группе';
-    if (p.cash < s.cost) return 'Не хватает денег';
-    return true;
-  }
-
-  doRoll(p) {
-    const a = die(), b = die(), total = a + b;
-    this.dice = [a, b]; this.seq++;
-    const dbl = a === b;
-    this.say(`${p.name} бросает ${a} и ${b}.`);
-    if (p.jail > 0) {
-      if (dbl) { p.jail = 0; this.say(`${p.name} выбросил дубль и выходит из Блокировки.`); this.again = false; }
-      else {
-        p.jail--;
-        if (p.jail > 0) { this.say(`${p.name} остаётся в Блокировке.`); this.phase = 'end'; this.again = false; return; }
-        this.say(`${p.name} платит $${JAIL_FEE} за выход.`);
-        if (!this.pay(p, JAIL_FEE, null)) { this.phase = 'end'; return; }
-        this.pot += JAIL_FEE; this.again = false;
-      }
-      this.advance(p, total, 'walk'); this.landOn(p); return;
-    }
-    if (dbl) {
-      p.doubles++;
-      if (p.doubles >= 3) { this.say(`${p.name}: три дубля подряд!`); this.sendJail(p); this.phase = 'end'; return; }
-      this.again = true;
-    } else { p.doubles = 0; this.again = false; }
-    this.advance(p, total, 'walk');
-    this.landOn(p);
-  }
-
   endTurn(p) {
-    if (this.again && !p.bankrupt && p.jail === 0) { this.again = false; this.phase = 'roll'; this.say(`${p.name} ходит ещё раз (дубль).`); return; }
-    p.doubles = 0; this.again = false;
-    const n = this.players.length;
-    let next = this.cur;
-    do { next = (next + 1) % n; } while (this.players[next].bankrupt);
-    if (next <= this.cur) {
-      this.round++;
-      if (this.round > this.turnLimit) { this.cur = next; this.finish(); return; }
-    }
-    this.cur = next; this.phase = 'roll'; this.pending = null;
+    p.luckUsed = 0; this.pending = null;
+    this.cur++;
+    if (this.cur >= this.players.length) { this.cur = 0; this.endRound(); if (this.finished) return; }
+    this.phase = 'roll';
   }
 
-  // ---------- боты и тайм-ауты ----------
+  // ---------- тайм-аут человека и боты ----------
   autoStep() {
     const p = this.curPlayer();
     if (this.phase === 'roll') this.act(p.id, 'roll');
-    else if (this.phase === 'buy') this.act(p.id, 'decline');
-    else if (this.phase === 'end') this.act(p.id, 'endTurn');
+    else if (this.phase === 'cell') this.act(p.id, 'skip');
+    else if (this.phase === 'market') this.act(p.id, 'endTurn');
+    else if (this.phase === 'auction') this.resolveAuction();
   }
 
   botStep() {
-    const p = this.curPlayer();
-    if (this.finished || p.bankrupt) return;
-    const id = p.id;
-    if (this.phase === 'roll') {
-      if (p.jail > 0) {
-        if (p.jailCards > 0) { this.act(id, 'useCard'); return; }
-        if (p.cash > 400 && this.round < this.turnLimit - 2) { this.act(id, 'payJail'); return; }
+    if (this.finished) return;
+    if (this.phase === 'auction') {
+      for (const p of this.players) {
+        if (this.phase !== 'auction') return;
+        if (p.isBot && this.auctionEligible(p) && this.auction.bids[p.id] === undefined) this.botBid(p);
       }
-      if (this.botBuild(p)) return;
-      this.act(id, 'roll');
-    } else if (this.phase === 'buy') {
-      const s = SQ[this.pending];
-      const reserve = this.round < 3 ? 60 : 120;
-      this.act(id, p.cash - s.price >= reserve ? 'buy' : 'decline');
-    } else if (this.phase === 'end') {
-      if (this.botBuild(p)) return;
-      this.act(id, 'endTurn');
+      return;
     }
+    const p = this.curPlayer(), id = p.id;
+    if (this.phase === 'roll') this.act(id, 'roll');
+    else if (this.phase === 'cell') this.botCell(p);
+    else if (this.phase === 'market') { this.botMarket(p); this.act(id, 'endTurn'); }
   }
 
-  botBuild(p) {
-    const cand = this.ownedBy(p).filter((s) => s.type === 'prop' && this.canBuild(p, s.i) === true && p.cash - s.cost >= 250)
-      .sort((a, b) => this.lvl[a.i] - this.lvl[b.i]);
-    if (!cand.length) return false;
-    return this.act(p.id, 'build', cand[0].i).ok;
+  botBid(p) {
+    const cost = CARDS[this.auction.tier - 1].cost;
+    let amount = Math.round(cost * (0.35 + Math.random() * 0.4));
+    amount = Math.min(amount, p.cash - 100);
+    if (amount < 20) amount = 0;
+    this.act(p.id, 'bid', { amount });
   }
 
-  view() {
+  botCell(p) {
+    const id = p.id, t = this.pending && this.pending.type;
+    if (t === 'shop') {
+      for (const tier of [3, 2, 1]) {
+        const cost = Math.round(CARDS[tier - 1].cost * SHOP_DISC);
+        if (p.cash - cost >= 150 && this.act(id, 'buyCard', { k: tier }).ok) return;
+      }
+      this.act(id, 'skip');
+    } else if (t === 'expand') {
+      if (p.cash >= SLOT_COST + 250 && this.freeSlots(p) < 1) this.act(id, 'buySlot'); else this.act(id, 'skip');
+    } else if (t === 'lottery') {
+      this.act(id, p.cash >= 300 ? 'playLottery' : 'skip');
+    } else this.act(id, 'skip');
+  }
+
+  botMarket(p) {
+    const id = p.id;
+    for (const c of p.cards) {
+      let best = this.price('N') >= this.price('A') ? 'N' : 'A';
+      if (this.price(best) <= ELEC + 5) best = 'off'; // добыча не окупает электричество
+      if (c.coin !== best) this.act(id, 'assign', { id: c.id, coin: best });
+    }
+    for (const c of COIN_IDS) {
+      const idx = this.idx[c], pr = this.price(c);
+      const buyAt = c === 'N' ? 3 : 2;
+      if (idx >= 7 && p.coins[c] > 0) this.act(id, 'trade', { coin: c, qty: -p.coins[c] });
+      else if (idx <= buyAt && this.round < this.rounds - 1) {
+        const q = Math.floor(Math.max(0, p.cash - 250) * 0.5 / pr);
+        if (q > 0) this.act(id, 'trade', { coin: c, qty: q });
+      }
+    }
+    if (p.luck > 0 && Math.random() < 0.5) {
+      const c = p.coins.N * this.price('N') >= p.coins.A * this.price('A') ? 'N' : 'A';
+      if (p.coins[c] > 0) this.act(id, 'luck', { coin: c, dir: 1 });
+    }
+    if (p.cash < 150 && this.freeSlots(p) > 0 && p.loans[10] === 0 && this.round < this.rounds - 2) this.act(id, 'loan', { k: 10 });
+    if (p.loans[20] > 0 && p.cash > 1300) this.act(id, 'repay', { k: 20 });
+    if (p.loans[10] > 0 && p.cash > 900) this.act(id, 'repay', { k: 10 });
+    if (this.round >= this.rounds - 1) { for (const k of [20, 10]) if (p.loans[k] > 0 && p.cash >= p.loans[k]) this.act(id, 'repay', { k }); }
+  }
+
+  // ---------- вид для клиента ----------
+  view(forId) {
     const cp = this.curPlayer();
+    const rate = (c) => ({ idx: this.idx[c], price: this.price(c), delta: this.lastDelta[c] });
     return {
-      round: Math.min(this.round, this.turnLimit), turnLimit: this.turnLimit,
-      phase: this.phase, cur: cp.id, again: this.again, pending: this.pending,
-      dice: this.dice, seq: this.seq, pot: this.pot, card: this.card,
-      owner: this.owner, lvl: this.lvl, log: this.log.slice(-14),
-      players: this.players.map((p) => ({
-        id: p.id, name: p.name, isBot: p.isBot, color: p.color, cash: p.cash, pos: p.pos, jail: p.jail,
-        jailCards: p.jailCards, bankrupt: p.bankrupt, anim: p.anim, worth: this.worth(p),
-      })),
+      round: Math.min(this.round, this.rounds), rounds: this.rounds, phase: this.phase, cur: cp.id,
+      pending: this.pending, dice: this.dice, seq: this.seq,
+      auction: this.auction && {
+        tier: this.auction.tier,
+        bids: Object.fromEntries(Object.keys(this.auction.bids).map((k) => [k, true])),
+        eligible: this.players.filter((p) => this.auctionEligible(p)).map((p) => p.id),
+      },
+      rates: { N: rate('N'), A: rate('A') },
+      history: { N: this.history.N.slice(-14), A: this.history.A.slice(-14) },
+      crisis: this.crisis, flags: this.flags, log: this.log.slice(-16),
+      players: this.players.map((p) => {
+        const g = GOALS.find((x) => x.id === p.goal);
+        return {
+          id: p.id, name: p.name, isBot: p.isBot, color: p.color, cash: p.cash, coins: p.coins, slots: p.slots,
+          cards: p.cards, luck: p.luck, luckUsed: p.luckUsed, loans: p.loans, pos: p.pos, worth: this.worth(p),
+          goal: p.id === forId || this.finished ? { text: g.text, done: g.ok(p) } : null,
+        };
+      }),
       finished: this.finished, standings: this.finished ? this.standings() : null,
     };
   }
 }
 
-const BOARD = SQ.map((s) => ({ i: s.i, type: s.type, name: s.name, price: s.price, g: s.g, color: s.color, rents: s.rents, cost: s.cost, amount: s.amount }));
-module.exports = { Game, BOARD, GROUP_COLORS, GROUPS, SQ };
+const STATIC = {
+  board: BOARD, coins: COINS.map(({ id, name, color, prices }) => ({ id, name, color, prices })), cards: CARDS, loans: LOANS,
+  consts: { SLOT_COST, MAX_SLOTS, SHOP_DISC, ELEC, LOTTERY_FEE, GOAL_BONUS, LUCK_PER_TURN },
+};
+module.exports = { Game, STATIC, BOARD, CARDS, COINS, SLOT_COST, MAX_SLOTS, SHOP_DISC };
